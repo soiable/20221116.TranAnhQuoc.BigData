@@ -9,18 +9,17 @@ import threading
 import time
 from collections import deque
 
-# ==========================================
+
 # 1. KHỞI TẠO BIẾN LƯU TRỮ DỮ LIỆU
-# ==========================================
+
 data_store = {}
-previous_ranks = {}  # Lưu thứ hạng của lần cập nhật trước để so sánh
-throughput_history = deque(maxlen=60)  # Lưu lịch sử tốc độ 60 giây gần nhất
+previous_ranks = {}
+throughput_history = deque(maxlen=60)
 metrics = {"total_updates": 0, "last_count": 0, "start_time": time.time()}
 
 
-# ==========================================
 # 2. HÀM ĐỌC DỮ LIỆU TỪ KAFKA CHẠY NGẦM
-# ==========================================
+
 def consume_kafka():
     # Sử dụng 'latest' để bỏ qua dữ liệu cũ, chỉ đọc dữ liệu mới từ lúc bật Dashboard
     consumer = KafkaConsumer(
@@ -45,9 +44,8 @@ def consume_kafka():
 # Khởi chạy luồng đọc Kafka
 threading.Thread(target=consume_kafka, daemon=True).start()
 
-# ==========================================
 # 3. THIẾT KẾ GIAO DIỆN WEB (DARK MODE)
-# ==========================================
+
 app = dash.Dash(__name__, external_stylesheets=[dbc.themes.DARKLY])
 
 app.layout = dbc.Container([
@@ -67,20 +65,21 @@ app.layout = dbc.Container([
                     html.Hr(),
                     html.Label("Time Window:", className="fw-bold text-light"),
                     dcc.Dropdown(
-                        id='time-window',
+                        id='time-window-dropdown',
                         options=[
-                            {'label': 'Real-time (Cumulative)', 'value': 'all'},
-                            {'label': 'Last 30 Minutes', 'value': '30m'},
-                            {'label': 'Last 1 Hour', 'value': '1h'}
+                            {'label': 'Last 5 Minutes', 'value': '5'},  # Thêm mốc 5 phút
+                            {'label': 'Last 15 Minutes', 'value': '15'},  # Thêm mốc 15 phút
+                            {'label': 'Last 30 Minutes', 'value': '30'},
+                            {'label': 'Last 1 Hour', 'value': '60'}
                         ],
-                        value='all',
-                        className="text-dark mb-2"
+                        value='30',
+
                     ),
                 ])
             ], color="dark", outline=True)
         ], width=3),
 
-        # --- CỘT BÊN PHẢI: BIỂU ĐỒ & THÔNG SỐ ---
+
         dbc.Col([
             dbc.Row([
                 dbc.Col(dbc.Alert(id="active-pages-count", color="info", className="text-center fw-bold fs-5"),
@@ -93,14 +92,11 @@ app.layout = dbc.Container([
         ], width=9)
     ]),
 
-    # Bộ đếm nhịp: Cập nhật biểu đồ mỗi 2 giây (2000ms)
+
     dcc.Interval(id='interval', interval=2000, n_intervals=0)
 ], fluid=True)
 
 
-# ==========================================
-# 4. LOGIC XỬ LÝ & VẼ BIỂU ĐỒ (CALLBACK)
-# ==========================================
 @app.callback(
     [Output('bar-chart-rank', 'figure'),
      Output('throughput-line-chart', 'figure'),
@@ -112,7 +108,7 @@ app.layout = dbc.Container([
 def update_ui(n, top_n):
     global previous_ranks
 
-    # --- 1. TÍNH TOÁN THROUGHPUT ---
+
     current_total = metrics["total_updates"]
     diff = current_total - metrics["last_count"]
     metrics["last_count"] = current_total
@@ -121,7 +117,7 @@ def update_ui(n, top_n):
 
     # --- 2. XỬ LÝ DỮ LIỆU & THỨ HẠNG ---
     if not data_store:
-        # Nếu chưa có dữ liệu, trả về biểu đồ rỗng
+
         empty_fig = px.bar(template="plotly_dark")
         return empty_fig, empty_fig, "Total Pages: 0", "Speed: 0.0 msg/s"
 
@@ -129,7 +125,6 @@ def update_ui(n, top_n):
     df = df.sort_values(by="Views", ascending=False).reset_index(drop=True)
     df['current_rank'] = df.index + 1
 
-    # Tính sự thay đổi hạng (Rank Change)
     def get_delta(row):
         page = row['Page']
         curr = row['current_rank']
@@ -147,39 +142,34 @@ def update_ui(n, top_n):
     df_top = df.head(top_n).copy()
     df_top['Rank_Change'] = df_top.apply(get_delta, axis=1)
 
-    # Cập nhật danh sách rank để dùng cho giây tiếp theo
+
     previous_ranks = dict(zip(df['Page'], df['current_rank']))
-    # --- 3. VẼ BIỂU ĐỒ BAR (TOP PAGES) --- (ĐÃ FIX LỖI CHÌM MÀU)
-    # Sắp xếp ngược lại để trang top 1 nằm ở trên cùng của biểu đồ ngang
+
     df_top = df_top.sort_values(by="Views", ascending=True)
 
     fig_bar = px.bar(
         df_top, x="Views", y="Page", orientation='h', text="Rank_Change",
-        color="Views",  # Tự động tô màu dựa trên View
+        color="Views",
 
-        # 1. FIX DẢI MÀU: Chuyển sang 'Cividis' (nổi bật hơn 'Inferno' trên nền tối)
+
         color_continuous_scale=px.colors.sequential.Cividis,
 
         title=f"Top {top_n} Pages & Rank Status",
         template="plotly_dark"
     )
 
-    # 2. FIX CHỮ: Đảm bảo chữ Rank_Change (New, +1) luôn có màu trắng để dễ đọc
+
     fig_bar.update_traces(
         textposition='outside',
         textfont=dict(color='white')
     )
 
-    # 3. FIX NỀN & BỐ CỤC: Tăng tương phản bằng nền xám tối
+
     fig_bar.update_layout(
         margin=dict(l=20, r=20, t=40, b=20),
-        coloraxis_showscale=False,  # Giấu color bar
-
-        # THÊM DÒNG NÀY: Đặt màu nền tối xám (#1e1e1e) thay vì đen tuyền (#000000)
+        coloraxis_showscale=False,
         plot_bgcolor='#1e1e1e',
         paper_bgcolor='#1e1e1e',
-
-        # Làm đẹp thêm: bo góc thanh biểu đồ (tùy chọn)
         bargap=0.1
     )
     # --- 4. VẼ BIỂU ĐỒ LINE (THROUGHPUT) ---
@@ -199,5 +189,5 @@ def update_ui(n, top_n):
 # 5. KHỞI CHẠY SERVER
 # ==========================================
 if __name__ == '__main__':
-    # use_reloader=False để tránh bị mở 2 luồng Kafka cùng lúc
+
     app.run(debug=True, port=8050, use_reloader=False)
