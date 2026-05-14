@@ -21,7 +21,7 @@ metrics = {"total_updates": 0, "last_count": 0, "start_time": time.time()}
 # 2. HÀM ĐỌC DỮ LIỆU TỪ KAFKA CHẠY NGẦM
 
 def consume_kafka():
-    # Sử dụng 'latest' để bỏ qua dữ liệu cũ, chỉ đọc dữ liệu mới từ lúc bật Dashboard
+    
     consumer = KafkaConsumer(
         'popular_pages',
         bootstrap_servers='localhost:9092',
